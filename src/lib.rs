@@ -77,7 +77,7 @@ where
                 0,
                 crc_on,
                 iq_inverted,
-                &modulation_params,
+                modulation_params,
             ),
             RadioType::SX1276 | RadioType::SX1277 | RadioType::SX1278 | RadioType::SX1279 => {
                 PacketParams::new_for_sx1276_7_8_9(
@@ -86,7 +86,7 @@ where
                     0,
                     crc_on,
                     iq_inverted,
-                    &modulation_params,
+                    modulation_params,
                 )
             }
         }
@@ -201,13 +201,13 @@ where
         self.radio_kind.do_tx(timeout_in_ms)?;
         match self.radio_kind.process_irq(self.radio_mode, self.rx_continuous, None) {
             Ok(()) => {
-                return Ok(());
+                Ok(())
             }
             Err(err) => {
                 self.radio_kind.ensure_ready(self.radio_mode)?;
                 self.radio_kind.set_standby()?;
                 self.radio_mode = RadioMode::Standby;
-                return Err(err);
+                Err(err)
             }
         }
     }

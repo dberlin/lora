@@ -67,7 +67,7 @@ where
             None => read_buffer.len(),
         };
 
-        for i in 0..number_to_read {
+        for item in read_buffer.iter_mut().take(number_to_read) {
             let transfer_result = self.spi.transfer(&mut input, &[0x00]).map_err(|_| SPI);
             let flush_result = self.spi.flush().map_err(|_| SPI);
             if transfer_result != Ok(()) {
@@ -77,7 +77,7 @@ where
                 let _err = self.iv.set_nss_high();
                 flush_result?;
             }
-            read_buffer[i] = input[0];
+            *item = input[0];
         }
         self.iv.set_nss_high()?;
 
@@ -114,7 +114,7 @@ where
             flush_result?;
         }
 
-        for i in 0..read_buffer.len() {
+        for item in read_buffer.iter_mut() {
             let transfer_result = self.spi.transfer(&mut input, &[0x00]).map_err(|_| SPI);
             let flush_result = self.spi.flush().map_err(|_| SPI);
             if transfer_result != Ok(()) {
@@ -124,7 +124,7 @@ where
                 let _err = self.iv.set_nss_high();
                 flush_result?;
             }
-            read_buffer[i] = input[0];
+            *item = input[0];
         }
         self.iv.set_nss_high()?;
 

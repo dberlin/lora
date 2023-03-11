@@ -1,3 +1,5 @@
+use bitflags::bitflags;
+
 use crate::mod_params::*;
 
 /// Internal sx127x LoRa modes (signified by most significant bit flag)
@@ -33,25 +35,18 @@ impl DioMapping1Dio0 {
         self as u8
     }
 }
-
-#[derive(Clone, Copy)]
-#[allow(dead_code)]
-pub enum IrqMask {
-    None = 0x00,
-    CADActivityDetected = 0x01,
-    FhssChangedChannel = 0x02,
-    CADDone = 0x04,
-    TxDone = 0x08,
-    HeaderValid = 0x10,
-    CRCError = 0x20,
-    RxDone = 0x40,
-    RxTimeout = 0x80,
-    All = 0xFF,
-}
-
-impl IrqMask {
-    pub fn value(self) -> u8 {
-        self as u8
+bitflags! {
+    pub struct IrqFlags: u8  {
+        // None = 0x00,
+        const CAD_ACTIVITY_DETECTED = 0x01;
+        const FHSS_CHANGED_CHANNEL = 0x02;
+        const CAD_DONE = 0x04;
+        const TX_DONE = 0x08;
+        const HEADER_VALID = 0x10;
+        const CRC_ERROR = 0x20;
+        const RX_DONE = 0x40;
+        const RX_TIMEOUT = 0x80;
+        // All = 0xff
     }
 }
 

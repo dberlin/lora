@@ -191,7 +191,7 @@ where
         is_tx_prep: bool,
     ) -> Result<(), RadioError> {
         if tx_boosted_if_possible {
-            if (p_out < 2) || (p_out > 20) {
+            if !(2..=20).contains(&p_out) {
                 return Err(RadioError::InvalidOutputPower);
             }
 
@@ -211,7 +211,7 @@ where
                 false,
             )?;
         } else {
-            if (p_out < -4) || (p_out > 14) {
+            if !(-4..=14).contains(&p_out) {
                 return Err(RadioError::InvalidOutputPower);
             }
 
@@ -262,12 +262,12 @@ where
         self.write_register(Register::RegModemConfig2, config_2, false)?;
 
         let mut config_1 = self.read_register(Register::RegModemConfig1)?;
-        config_1 = (config_1 & 0x0fu8) | ((bandwidth_val << 4) as u8);
+        config_1 = (config_1 & 0x0fu8) | (bandwidth_val << 4);
         self.write_register(Register::RegModemConfig1, config_1, false)?;
 
         let cr = coding_rate_denominator_val - 4;
         config_1 = self.read_register(Register::RegModemConfig1)?;
-        config_1 = (config_1 & 0xf1u8) | ((cr << 1) as u8);
+        config_1 = (config_1 & 0xf1u8) | (cr << 1);
         self.write_register(Register::RegModemConfig1, config_1, false)?;
 
         let mut config_3 = self.read_register(Register::RegModemConfig3)?;
@@ -290,17 +290,17 @@ where
 
         let mut config_1 = self.read_register(Register::RegModemConfig1)?;
         if pkt_params.implicit_header {
-            config_1 = config_1 | 0x01u8;
+            config_1 |= 0x01u8;
         } else {
-            config_1 = config_1 & 0xfeu8;
+            config_1 &= 0xfeu8;
         }
         self.write_register(Register::RegModemConfig1, config_1, false)?;
 
         let mut config_2 = self.read_register(Register::RegModemConfig2)?;
         if pkt_params.crc_on {
-            config_2 = config_2 | 0x04u8;
+            config_2 |= 0x04u8;
         } else {
-            config_2 = config_2 & 0xfbu8;
+            config_2 &= 0xfbu8;
         }
         self.write_register(Register::RegModemConfig2, config_2, false)?;
 
@@ -351,10 +351,9 @@ where
         symbol_timeout: u16,
         _rx_timeout_in_ms: u32,
     ) -> Result<(), RadioError> {
-        match duty_cycle_params {
-            Some(&_duty_cycle) => return Err(RadioError::DutyCycleUnsupported),
-            None => (),
-        }
+        if let Some(&_duty_cycle) = duty_cycle_params {
+            return Err(RadioError::DutyCycleUnsupported);
+        };
 
         self.intf.iv.enable_rf_switch_rx()?;
 
@@ -428,7 +427,7 @@ where
             Some(RadioMode::Transmit) => {
                 self.write_register(
                     Register::RegIrqFlagsMask,
-                    IrqMask::All.value() ^ IrqMask::TxDone.value(),
+                    (IrqFlags::all() ^ IrqFlags::TX_DONE).bits(),
                     false,
                 )?;
 
@@ -441,8 +440,7 @@ where
             Some(RadioMode::Receive) => {
                 self.write_register(
                     Register::RegIrqFlagsMask,
-                    IrqMask::All.value()
-                        ^ (IrqMask::RxDone.value() | IrqMask::RxTimeout.value() | IrqMask::CRCError.value()),
+                    (IrqFlags::all() ^ (IrqFlags::RX_DONE | IrqFlags::RX_TIMEOUT | IrqFlags::CRC_ERROR)).bits(),
                     false,
                 )?;
 
@@ -455,7 +453,7 @@ where
             Some(RadioMode::ChannelActivityDetection) => {
                 self.write_register(
                     Register::RegIrqFlagsMask,
-                    IrqMask::All.value() ^ (IrqMask::CADDone.value() | IrqMask::CADActivityDetected.value()),
+                    (IrqFlags::all() ^ (IrqFlags::CAD_DONE | IrqFlags::CAD_ACTIVITY_DETECTED)).bits(),
                     false,
                 )?;
 
@@ -466,7 +464,7 @@ where
                 self.write_register(Register::RegIrqFlags, 0x00u8, false)?;
             }
             _ => {
-                self.write_register(Register::RegIrqFlagsMask, IrqMask::All.value(), false)?;
+                self.write_register(Register::RegIrqFlagsMask, IrqFlags::all().bits(), false)?;
 
                 let mut dio_mapping_1 = self.read_register(Register::RegDioMapping1)?;
                 dio_mapping_1 = (dio_mapping_1 & DioMapping1Dio0::Mask.value()) | DioMapping1Dio0::Other.value();
@@ -496,52 +494,47 @@ where
 
             info!("process_irq satisfied: irq_flags = 0x{:x}", irq_flags);
 
-            // check for errors and unexpected interrupt masks (based on radio mode)
-            if (irq_flags & IrqMask::CRCError.value()) == IrqMask::CRCError.value() {
-                if radio_mode == RadioMode::Receive {
-                    return Err(RadioError::CRCErrorOnReceive);
-                } else {
-                    return Err(RadioError::CRCErrorUnexpected);
+            return match IrqFlags::from_bits_truncate(irq_flags) {
+                crc_error if crc_error.contains(IrqFlags::CRC_ERROR) => {
+                    if radio_mode == RadioMode::Receive {
+                        Err(RadioError::CRCErrorOnReceive)
+                    } else {
+                        Err(RadioError::CRCErrorUnexpected)
+                    }
                 }
-            } else if (irq_flags & IrqMask::RxTimeout.value()) == IrqMask::RxTimeout.value() {
-                if radio_mode == RadioMode::Receive {
-                    return Err(RadioError::ReceiveTimeout);
-                } else {
-                    return Err(RadioError::TimeoutUnexpected);
+                rx_timeout if rx_timeout.contains(IrqFlags::RX_TIMEOUT) => {
+                    if radio_mode == RadioMode::Receive {
+                        Err(RadioError::ReceiveTimeout)
+                    } else {
+                        Err(RadioError::TimeoutUnexpected)
+                    }
                 }
-            } else if ((irq_flags & IrqMask::TxDone.value()) == IrqMask::TxDone.value())
-                && (radio_mode != RadioMode::Transmit)
-            {
-                return Err(RadioError::TransmitDoneUnexpected);
-            } else if ((irq_flags & IrqMask::RxDone.value()) == IrqMask::RxDone.value())
-                && (radio_mode != RadioMode::Receive)
-            {
-                return Err(RadioError::ReceiveDoneUnexpected);
-            } else if (((irq_flags & IrqMask::CADActivityDetected.value()) == IrqMask::CADActivityDetected.value())
-                || ((irq_flags & IrqMask::CADDone.value()) == IrqMask::CADDone.value()))
-                && (radio_mode != RadioMode::ChannelActivityDetection)
-            {
-                return Err(RadioError::CADUnexpected);
-            }
-
-            if (irq_flags & IrqMask::HeaderValid.value()) == IrqMask::HeaderValid.value() {
-                info!("HeaderValid");
-            }
-
-            // handle completions
-            if (irq_flags & IrqMask::TxDone.value()) == IrqMask::TxDone.value() {
-                return Ok(());
-            } else if (irq_flags & IrqMask::RxDone.value()) == IrqMask::RxDone.value() {
-                return Ok(());
-            } else if (irq_flags & IrqMask::CADDone.value()) == IrqMask::CADDone.value() {
-                if cad_activity_detected.is_some() {
-                    *(cad_activity_detected.unwrap()) =
-                        (irq_flags & IrqMask::CADActivityDetected.value()) == IrqMask::CADActivityDetected.value();
+                unexpected_tx if unexpected_tx.contains(IrqFlags::TX_DONE) && (radio_mode != RadioMode::Transmit) => {
+                    Err(RadioError::TransmitDoneUnexpected)
                 }
-                return Ok(());
-            }
-
-            // if an interrupt occurred for other than an error or operation completion (currently, only HeaderValid is in that category), loop to wait again
+                unexpected_rx if unexpected_rx.contains(IrqFlags::RX_DONE) && (radio_mode != RadioMode::Receive) => {
+                    Err(RadioError::ReceiveDoneUnexpected)
+                }
+                unexpected_cad
+                    if (unexpected_cad.intersects(IrqFlags::CAD_ACTIVITY_DETECTED | IrqFlags::CAD_DONE)
+                        && (radio_mode != RadioMode::ChannelActivityDetection)) =>
+                {
+                    Err(RadioError::CADUnexpected)
+                }
+                // handle completions
+                tx if tx.contains(IrqFlags::TX_DONE) => Ok(()),
+                rx if rx.contains(IrqFlags::RX_DONE) => Ok(()),
+                cad if cad.contains(IrqFlags::CAD_DONE) => {
+                    if cad_activity_detected.is_some() {
+                        *cad_activity_detected.unwrap() = cad.contains(IrqFlags::CAD_ACTIVITY_DETECTED);
+                    }
+                    Ok(())
+                }
+                // if an interrupt occurred for other than an error or operation completion,
+                // (currently, only HeaderValid is in that category), loop to wait again
+                header_valid if header_valid.contains(IrqFlags::HEADER_VALID) => continue,
+                _ => continue,
+            };
         }
     }
 }
