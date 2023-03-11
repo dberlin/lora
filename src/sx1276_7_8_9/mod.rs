@@ -525,8 +525,8 @@ where
                 tx if tx.contains(IrqFlags::TX_DONE) => Ok(()),
                 rx if rx.contains(IrqFlags::RX_DONE) => Ok(()),
                 cad if cad.contains(IrqFlags::CAD_DONE) => {
-                    if cad_activity_detected.is_some() {
-                        *cad_activity_detected.unwrap() = cad.contains(IrqFlags::CAD_ACTIVITY_DETECTED);
+                    if let Some(cad_bool) = cad_activity_detected {
+                        *cad_bool = cad.contains(IrqFlags::CAD_ACTIVITY_DETECTED);
                     }
                     Ok(())
                 }
