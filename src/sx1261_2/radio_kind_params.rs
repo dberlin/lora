@@ -1,3 +1,5 @@
+use bitflags::bitflags;
+
 use crate::mod_params::*;
 
 #[derive(Clone, Copy, PartialEq)]
@@ -14,28 +16,23 @@ impl PacketType {
     }
 }
 
-#[derive(Clone, Copy)]
-pub enum IrqMask {
-    None = 0x0000,
-    TxDone = 0x0001,
-    RxDone = 0x0002,
-    PreambleDetected = 0x0004,
-    SyncwordValid = 0x0008,
-    HeaderValid = 0x0010,
-    HeaderError = 0x0020,
-    CRCError = 0x0040,
-    CADDone = 0x0080,
-    CADActivityDetected = 0x0100,
-    RxTxTimeout = 0x0200,
-    All = 0xFFFF,
+// #[derive(Clone, Copy)]
+bitflags! {
+pub struct  IrqFlags:u16 {
+    // None = 0x0000;
+    const TX_DONE = 0x0001;
+    const RX_DONE = 0x0002;
+    const PREAMBLE_DETECTED = 0x0004;
+    const SYNCWORD_VALID = 0x0008;
+    const HEADER_VALID = 0x0010;
+    const HEADER_ERROR = 0x0020;
+    const CRC_ERROR = 0x0040;
+    const CAD_DONE = 0x0080;
+    const CAD_ACTIVITY_DETECTED = 0x0100;
+    const RX_TX_TIMEOUT = 0x0200;
+    // All = 0xFFFF;
 }
-
-impl IrqMask {
-    pub fn value(self) -> u16 {
-        self as u16
-    }
 }
-
 #[derive(Clone, Copy)]
 #[allow(dead_code)]
 pub enum Register {

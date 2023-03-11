@@ -730,31 +730,34 @@ where
 
     // Set the IRQ mask and DIO masks
     fn set_irq_params(&mut self, radio_mode: Option<RadioMode>) -> Result<(), RadioError> {
-        let mut irq_mask: u16 = IrqMask::None.value();
-        let mut dio1_mask: u16 = IrqMask::None.value();
-        let dio2_mask: u16 = IrqMask::None.value();
-        let dio3_mask: u16 = IrqMask::None.value();
+        let mut irq_flags_mask: IrqFlags = IrqFlags::empty();
+        let mut dio1_flags_mask: IrqFlags = IrqFlags::empty();
+        let dio2_flags_mask: IrqFlags = IrqFlags::empty();
+        let dio3_flags_mask: IrqFlags = IrqFlags::empty();
 
         match radio_mode {
             Some(RadioMode::Standby) => {
-                irq_mask = IrqMask::All.value();
-                dio1_mask = IrqMask::All.value();
+                irq_flags_mask = IrqFlags::all();
+                dio1_flags_mask = IrqFlags::all();
             }
             Some(RadioMode::Transmit) => {
-                irq_mask = IrqMask::TxDone.value() | IrqMask::RxTxTimeout.value();
-                dio1_mask = IrqMask::TxDone.value() | IrqMask::RxTxTimeout.value();
+                irq_flags_mask = IrqFlags::TX_DONE | IrqFlags::RX_TX_TIMEOUT;
+                dio1_flags_mask = IrqFlags::TX_DONE | IrqFlags::RX_TX_TIMEOUT;
             }
             Some(RadioMode::Receive) | Some(RadioMode::ReceiveDutyCycle) => {
-                irq_mask = IrqMask::All.value();
-                dio1_mask = IrqMask::All.value();
+                irq_flags_mask = IrqFlags::all();
+                dio1_flags_mask = IrqFlags::all();
             }
             Some(RadioMode::ChannelActivityDetection) => {
-                irq_mask = IrqMask::CADDone.value() | IrqMask::CADActivityDetected.value();
-                dio1_mask = IrqMask::CADDone.value() | IrqMask::CADActivityDetected.value();
+                irq_flags_mask = IrqFlags::CAD_DONE | IrqFlags::CAD_ACTIVITY_DETECTED;
+                dio1_flags_mask = IrqFlags::CAD_DONE | IrqFlags::CAD_ACTIVITY_DETECTED;
             }
             _ => {}
         }
-
+        let irq_mask = irq_flags_mask.bits();
+        let dio1_mask = dio1_flags_mask.bits();
+        let dio2_mask = dio2_flags_mask.bits();
+        let dio3_mask = dio3_flags_mask.bits();
         let op_code_and_masks = [
             OpCode::CfgDIOIrq.value(),
             ((irq_mask >> 8) & 0x00FF) as u8,
@@ -793,90 +796,98 @@ where
             info!("process_irq satisfied: irq_flags = {:x}", irq_flags);
 
             // check for errors and unexpected interrupt masks (based on radio mode)
-            if (irq_flags & IrqMask::HeaderError.value()) == IrqMask::HeaderError.value() {
-                return Err(RadioError::HeaderError);
-            } else if (irq_flags & IrqMask::CRCError.value()) == IrqMask::CRCError.value() {
-                if (radio_mode == RadioMode::Receive) | (radio_mode == RadioMode::ReceiveDutyCycle) {
-                    return Err(RadioError::CRCErrorOnReceive);
-                } else {
-                    return Err(RadioError::CRCErrorUnexpected);
+            return match IrqFlags::from_bits_truncate(irq_flags) {
+                header_error if header_error.contains(IrqFlags::HEADER_ERROR) => Err(RadioError::HeaderError),
+                crc_error if crc_error.contains(IrqFlags::CRC_ERROR) => {
+                    if (radio_mode == RadioMode::Receive) | (radio_mode == RadioMode::ReceiveDutyCycle) {
+                        Err(RadioError::CRCErrorOnReceive)
+                    } else {
+                        Err(RadioError::CRCErrorUnexpected)
+                    }
                 }
-            } else if (irq_flags & IrqMask::RxTxTimeout.value()) == IrqMask::RxTxTimeout.value() {
-                if radio_mode == RadioMode::Transmit {
-                    return Err(RadioError::TransmitTimeout);
-                } else if (radio_mode == RadioMode::Receive) | (radio_mode == RadioMode::ReceiveDutyCycle) {
-                    return Err(RadioError::ReceiveTimeout);
-                } else {
-                    return Err(RadioError::TimeoutUnexpected);
+                rx_tx_timeout if rx_tx_timeout.contains(IrqFlags::RX_TX_TIMEOUT) => {
+                    if radio_mode == RadioMode::Transmit {
+                        Err(RadioError::TransmitTimeout)
+                    } else if (radio_mode == RadioMode::Receive) | (radio_mode == RadioMode::ReceiveDutyCycle) {
+                        Err(RadioError::ReceiveTimeout)
+                    } else {
+                        Err(RadioError::TimeoutUnexpected)
+                    }
                 }
-            } else if ((irq_flags & IrqMask::TxDone.value()) == IrqMask::TxDone.value())
-                && (radio_mode != RadioMode::Transmit)
-            {
-                return Err(RadioError::TransmitDoneUnexpected);
-            } else if ((irq_flags & IrqMask::RxDone.value()) == IrqMask::RxDone.value())
-                && !((radio_mode == RadioMode::Receive) | (radio_mode == RadioMode::ReceiveDutyCycle))
-            {
-                return Err(RadioError::ReceiveDoneUnexpected);
-            } else if (((irq_flags & IrqMask::CADActivityDetected.value()) == IrqMask::CADActivityDetected.value())
-                || ((irq_flags & IrqMask::CADDone.value()) == IrqMask::CADDone.value()))
-                && (radio_mode != RadioMode::ChannelActivityDetection)
-            {
-                return Err(RadioError::CADUnexpected);
-            }
+                unexpected_txdone
+                    if unexpected_txdone.contains(IrqFlags::TX_DONE) && (radio_mode != RadioMode::Transmit) =>
+                {
+                    Err(RadioError::TransmitDoneUnexpected)
+                }
 
-            if (irq_flags & IrqMask::HeaderValid.value()) == IrqMask::HeaderValid.value() {
-                info!("HeaderValid");
-            } else if (irq_flags & IrqMask::PreambleDetected.value()) == IrqMask::PreambleDetected.value() {
-                info!("PreambleDetected");
-            } else if (irq_flags & IrqMask::SyncwordValid.value()) == IrqMask::SyncwordValid.value() {
-                info!("SyncwordValid");
-            }
+                unexpected_rxdone
+                    if unexpected_rxdone.contains(IrqFlags::RX_DONE)
+                        && !((radio_mode == RadioMode::Receive) || (radio_mode == RadioMode::ReceiveDutyCycle)) =>
+                {
+                    Err(RadioError::ReceiveDoneUnexpected)
+                }
+                unexpected_cad
+                    if unexpected_cad.intersects(IrqFlags::CAD_ACTIVITY_DETECTED | IrqFlags::CAD_DONE)
+                        && (radio_mode != RadioMode::ChannelActivityDetection) =>
+                {
+                    Err(RadioError::CADUnexpected)
+                }
+                header_valid if header_valid.contains(IrqFlags::HEADER_VALID) => {
+                    info!("HeaderValid");
+                    Ok(())
+                }
+                preamble_detected if preamble_detected.contains(IrqFlags::PREAMBLE_DETECTED) => {
+                    info!("PreambleDetected");
+                    Ok(())
+                }
+                syncword_valid if syncword_valid.contains(IrqFlags::SYNCWORD_VALID) => {
+                    info!("SyncwordValid");
+                    Ok(())
+                }
+                tx_done if tx_done.contains(IrqFlags::TX_DONE) => Ok(()),
+                rx_done if rx_done.contains(IrqFlags::RX_DONE) => {
+                    if !rx_continuous {
+                        // implicit header mode timeout behavior (see DS_SX1261-2_V1.2 datasheet chapter 15.3)
+                        let register_and_clear = [
+                            OpCode::WriteRegister.value(),
+                            Register::RTCCtrl.addr1(),
+                            Register::RTCCtrl.addr2(),
+                            0x00u8,
+                        ];
+                        self.intf.write(&[&register_and_clear], false)?;
 
-            // handle completions
-            if (irq_flags & IrqMask::TxDone.value()) == IrqMask::TxDone.value() {
-                return Ok(());
-            } else if (irq_flags & IrqMask::RxDone.value()) == IrqMask::RxDone.value() {
-                if !rx_continuous {
-                    // implicit header mode timeout behavior (see DS_SX1261-2_V1.2 datasheet chapter 15.3)
-                    let register_and_clear = [
-                        OpCode::WriteRegister.value(),
-                        Register::RTCCtrl.addr1(),
-                        Register::RTCCtrl.addr2(),
-                        0x00u8,
-                    ];
-                    self.intf.write(&[&register_and_clear], false)?;
-
-                    let mut evt_clr = [0x00u8];
-                    self.intf.read(
-                        &[&[
-                            OpCode::ReadRegister.value(),
+                        let mut evt_clr = [0x00u8];
+                        self.intf.read(
+                            &[&[
+                                OpCode::ReadRegister.value(),
+                                Register::EvtClr.addr1(),
+                                Register::EvtClr.addr2(),
+                                0x00u8,
+                            ]],
+                            &mut evt_clr,
+                            None,
+                        )?;
+                        evt_clr[0] |= 1 << 1;
+                        let register_and_evt_clear = [
+                            OpCode::WriteRegister.value(),
                             Register::EvtClr.addr1(),
                             Register::EvtClr.addr2(),
-                            0x00u8,
-                        ]],
-                        &mut evt_clr,
-                        None,
-                    )?;
-                    evt_clr[0] |= 1 << 1;
-                    let register_and_evt_clear = [
-                        OpCode::WriteRegister.value(),
-                        Register::EvtClr.addr1(),
-                        Register::EvtClr.addr2(),
-                        evt_clr[0],
-                    ];
-                    self.intf.write(&[&register_and_evt_clear], false)?;
+                            evt_clr[0],
+                        ];
+                        self.intf.write(&[&register_and_evt_clear], false)?;
+                    }
+                    Ok(())
                 }
-                return Ok(());
-            } else if (irq_flags & IrqMask::CADDone.value()) == IrqMask::CADDone.value() {
-                if cad_activity_detected.is_some() {
-                    *(cad_activity_detected.unwrap()) =
-                        (irq_flags & IrqMask::CADActivityDetected.value()) == IrqMask::CADActivityDetected.value();
+                cad_done if cad_done.contains(IrqFlags::CAD_DONE) => {
+                    if let Some(cad_bool) = cad_activity_detected {
+                        *cad_bool = cad_done.contains(IrqFlags::CAD_ACTIVITY_DETECTED);
+                    }
+                    Ok(())
                 }
-                return Ok(());
-            }
-
-            // if an interrupt occurred for other than an error or operation completion (currently, PreambleDetected, SyncwordValid, and HeaderValid
-            // are in that category), loop to wait again
+                // if an interrupt occurred for other than an error or operation completion (currently, PreambleDetected, SyncwordValid, and HeaderValid
+                // are in that category), loop to wait again
+                _ => continue,
+            };
         }
     }
 }
