@@ -1,8 +1,8 @@
 mod radio_kind_params;
 
 use defmt::info;
-use embedded_hal_async::delay::DelayUs;
-use embedded_hal_async::spi::*;
+use embedded_hal_1::delay::DelayUs;
+use embedded_hal_1::spi::*;
 use radio_kind_params::*;
 
 use crate::mod_params::*;
@@ -95,32 +95,26 @@ where
     }
 
     // Utility functions
-    async fn write_register(
-        &mut self,
-        register: Register,
-        value: u8,
-        is_sleep_command: bool,
-    ) -> Result<(), RadioError> {
+    fn write_register(&mut self, register: Register, value: u8, is_sleep_command: bool) -> Result<(), RadioError> {
         let write_buffer = [register.write_addr(), value];
-        self.intf.write(&[&write_buffer], is_sleep_command).await
+        self.intf.write(&[&write_buffer], is_sleep_command)
     }
 
-    async fn read_register(&mut self, register: Register) -> Result<u8, RadioError> {
+    fn read_register(&mut self, register: Register) -> Result<u8, RadioError> {
         let write_buffer = [register.read_addr()];
         let mut read_buffer = [0x00u8];
-        self.intf.read(&[&write_buffer], &mut read_buffer, None).await?;
+        self.intf.read(&[&write_buffer], &mut read_buffer, None)?;
         Ok(read_buffer[0])
     }
 
     // Set the number of symbols the radio will wait to validate a reception
-    async fn set_lora_symbol_num_timeout(&mut self, symbol_num: u8) -> Result<(), RadioError> {
+    fn set_lora_symbol_num_timeout(&mut self, symbol_num: u8) -> Result<(), RadioError> {
         self.write_register(Register::RegSymbTimeoutLsb, symbol_num, false)
-            .await
     }
 
     // Set the over current protection (mA) on the radio
-    async fn set_ocp(&mut self, ocp_trim: OcpTrim) -> Result<(), RadioError> {
-        self.write_register(Register::RegOcp, ocp_trim.value(), false).await
+    fn set_ocp(&mut self, ocp_trim: OcpTrim) -> Result<(), RadioError> {
+        self.write_register(Register::RegOcp, ocp_trim.value(), false)
     }
 }
 
@@ -133,63 +127,55 @@ where
         self.radio_type
     }
 
-    async fn reset(&mut self, delay: &mut impl DelayUs) -> Result<(), RadioError> {
-        self.intf.iv.reset(delay).await?;
-        self.set_sleep(delay).await?; // ensure sleep mode is entered so that the LoRa mode bit is set
+    fn reset(&mut self, delay: &mut impl DelayUs) -> Result<(), RadioError> {
+        self.intf.iv.reset(delay)?;
+        self.set_sleep(delay)?; // ensure sleep mode is entered so that the LoRa mode bit is set
         Ok(())
     }
 
-    async fn ensure_ready(&mut self, _mode: RadioMode) -> Result<(), RadioError> {
+    fn ensure_ready(&mut self, _mode: RadioMode) -> Result<(), RadioError> {
         Ok(())
     }
 
     // Use DIO2 to control an RF Switch
-    async fn init_rf_switch(&mut self) -> Result<(), RadioError> {
+    fn init_rf_switch(&mut self) -> Result<(), RadioError> {
         Ok(())
     }
 
-    async fn set_standby(&mut self) -> Result<(), RadioError> {
-        self.write_register(Register::RegOpMode, LoRaMode::Standby.value(), false)
-            .await?;
-        self.intf.iv.disable_rf_switch().await
+    fn set_standby(&mut self) -> Result<(), RadioError> {
+        self.write_register(Register::RegOpMode, LoRaMode::Standby.value(), false)?;
+        self.intf.iv.disable_rf_switch()
     }
 
-    async fn set_sleep(&mut self, _delay: &mut impl DelayUs) -> Result<bool, RadioError> {
-        self.intf.iv.disable_rf_switch().await?;
-        self.write_register(Register::RegOpMode, LoRaMode::Sleep.value(), true)
-            .await?;
+    fn set_sleep(&mut self, _delay: &mut impl DelayUs) -> Result<bool, RadioError> {
+        self.intf.iv.disable_rf_switch()?;
+        self.write_register(Register::RegOpMode, LoRaMode::Sleep.value(), true)?;
         Ok(false) // warm start unavailable for sx127x
     }
 
     /// The sx127x LoRa mode is set when setting a mode while in sleep mode.
-    async fn set_lora_modem(&mut self, enable_public_network: bool) -> Result<(), RadioError> {
+    fn set_lora_modem(&mut self, enable_public_network: bool) -> Result<(), RadioError> {
         if enable_public_network {
             self.write_register(Register::RegSyncWord, LORA_MAC_PUBLIC_SYNCWORD, false)
-                .await
         } else {
             self.write_register(Register::RegSyncWord, LORA_MAC_PRIVATE_SYNCWORD, false)
-                .await
         }
     }
 
-    async fn set_oscillator(&mut self) -> Result<(), RadioError> {
-        self.write_register(Register::RegTcxo, TCXO_FOR_OSCILLATOR, false).await
+    fn set_oscillator(&mut self) -> Result<(), RadioError> {
+        self.write_register(Register::RegTcxo, TCXO_FOR_OSCILLATOR, false)
     }
 
-    async fn set_regulator_mode(&mut self) -> Result<(), RadioError> {
+    fn set_regulator_mode(&mut self) -> Result<(), RadioError> {
         Ok(())
     }
 
-    async fn set_tx_rx_buffer_base_address(
-        &mut self,
-        tx_base_addr: usize,
-        rx_base_addr: usize,
-    ) -> Result<(), RadioError> {
+    fn set_tx_rx_buffer_base_address(&mut self, tx_base_addr: usize, rx_base_addr: usize) -> Result<(), RadioError> {
         if tx_base_addr > 255 || rx_base_addr > 255 {
             return Err(RadioError::InvalidBaseAddress(tx_base_addr, rx_base_addr));
         }
-        self.write_register(Register::RegFifoTxBaseAddr, 0x00u8, false).await?;
-        self.write_register(Register::RegFifoRxBaseAddr, 0x00u8, false).await
+        self.write_register(Register::RegFifoTxBaseAddr, 0x00u8, false)?;
+        self.write_register(Register::RegFifoRxBaseAddr, 0x00u8, false)
     }
 
     // Set parameters associated with power for a send operation.
@@ -197,7 +183,7 @@ where
     //   mdltn_params            needed for a power vs channel frequency validation
     //   tx_boosted_if_possible  determine if transmit boost is requested
     //   is_tx_prep              indicates which ramp up time to use
-    async fn set_tx_power_and_ramp_time(
+    fn set_tx_power_and_ramp_time(
         &mut self,
         p_out: i32,
         _mdltn_params: Option<&ModulationParams>,
@@ -213,20 +199,17 @@ where
             let output_power: i32 = p_out - 2;
 
             if p_out > 17 {
-                self.write_register(Register::RegPaDac, PaDac::_20DbmOn.value(), false)
-                    .await?;
-                self.set_ocp(OcpTrim::_240Ma).await?;
+                self.write_register(Register::RegPaDac, PaDac::_20DbmOn.value(), false)?;
+                self.set_ocp(OcpTrim::_240Ma)?;
             } else {
-                self.write_register(Register::RegPaDac, PaDac::_20DbmOff.value(), false)
-                    .await?;
-                self.set_ocp(OcpTrim::_100Ma).await?;
+                self.write_register(Register::RegPaDac, PaDac::_20DbmOff.value(), false)?;
+                self.set_ocp(OcpTrim::_100Ma)?;
             }
             self.write_register(
                 Register::RegPaConfig,
                 PaConfig::PaBoost.value() | (output_power as u8),
                 false,
-            )
-            .await?;
+            )?;
         } else {
             if (p_out < -4) || (p_out > 14) {
                 return Err(RadioError::InvalidOutputPower);
@@ -236,29 +219,27 @@ where
             // Pout=Pmax-(15-OutputPower)
             let output_power: i32 = p_out;
 
-            self.write_register(Register::RegPaDac, PaDac::_20DbmOff.value(), false)
-                .await?;
-            self.set_ocp(OcpTrim::_100Ma).await?;
+            self.write_register(Register::RegPaDac, PaDac::_20DbmOff.value(), false)?;
+            self.set_ocp(OcpTrim::_100Ma)?;
             self.write_register(
                 Register::RegPaConfig,
                 PaConfig::MaxPower7NoPaBoost.value() | (output_power as u8),
                 false,
-            )
-            .await?;
+            )?;
         }
 
         let ramp_time = match is_tx_prep {
             true => RampTime::Ramp40Us,   // for instance, prior to TX or CAD
             false => RampTime::Ramp250Us, // for instance, on initialization
         };
-        self.write_register(Register::RegPaRamp, ramp_time.value(), false).await
+        self.write_register(Register::RegPaRamp, ramp_time.value(), false)
     }
 
-    async fn update_retention_list(&mut self) -> Result<(), RadioError> {
+    fn update_retention_list(&mut self) -> Result<(), RadioError> {
         Ok(())
     }
 
-    async fn set_modulation_params(&mut self, mdltn_params: &ModulationParams) -> Result<(), RadioError> {
+    fn set_modulation_params(&mut self, mdltn_params: &ModulationParams) -> Result<(), RadioError> {
         let spreading_factor_val = spreading_factor_value(mdltn_params.spreading_factor)?;
         let bandwidth_val = bandwidth_value(mdltn_params.bandwidth)?;
         let coding_rate_denominator_val = coding_rate_denominator_value(mdltn_params.coding_rate)?;
@@ -273,59 +254,55 @@ where
             optimize = 0xc5u8;
             threshold = 0x0cu8;
         }
-        self.write_register(Register::RegDetectionOptimize, optimize, false)
-            .await?;
-        self.write_register(Register::RegDetectionThreshold, threshold, false)
-            .await?;
+        self.write_register(Register::RegDetectionOptimize, optimize, false)?;
+        self.write_register(Register::RegDetectionThreshold, threshold, false)?;
 
-        let mut config_2 = self.read_register(Register::RegModemConfig2).await?;
+        let mut config_2 = self.read_register(Register::RegModemConfig2)?;
         config_2 = (config_2 & 0x0fu8) | ((spreading_factor_val << 4) & 0xf0u8);
-        self.write_register(Register::RegModemConfig2, config_2, false).await?;
+        self.write_register(Register::RegModemConfig2, config_2, false)?;
 
-        let mut config_1 = self.read_register(Register::RegModemConfig1).await?;
+        let mut config_1 = self.read_register(Register::RegModemConfig1)?;
         config_1 = (config_1 & 0x0fu8) | ((bandwidth_val << 4) as u8);
-        self.write_register(Register::RegModemConfig1, config_1, false).await?;
+        self.write_register(Register::RegModemConfig1, config_1, false)?;
 
         let cr = coding_rate_denominator_val - 4;
-        config_1 = self.read_register(Register::RegModemConfig1).await?;
+        config_1 = self.read_register(Register::RegModemConfig1)?;
         config_1 = (config_1 & 0xf1u8) | ((cr << 1) as u8);
-        self.write_register(Register::RegModemConfig1, config_1, false).await?;
+        self.write_register(Register::RegModemConfig1, config_1, false)?;
 
-        let mut config_3 = self.read_register(Register::RegModemConfig3).await?;
+        let mut config_3 = self.read_register(Register::RegModemConfig3)?;
         config_3 = (config_3 & 0xf3u8) | ldro_agc_auto_flags;
-        self.write_register(Register::RegModemConfig3, config_3, false).await
+        self.write_register(Register::RegModemConfig3, config_3, false)
     }
 
-    async fn set_packet_params(&mut self, pkt_params: &PacketParams) -> Result<(), RadioError> {
+    fn set_packet_params(&mut self, pkt_params: &PacketParams) -> Result<(), RadioError> {
         // handle payload_length ???
         self.write_register(
             Register::RegPreambleMsb,
             ((pkt_params.preamble_length >> 8) & 0x00ff) as u8,
             false,
-        )
-        .await?;
+        )?;
         self.write_register(
             Register::RegPreambleLsb,
             (pkt_params.preamble_length & 0x00ff) as u8,
             false,
-        )
-        .await?;
+        )?;
 
-        let mut config_1 = self.read_register(Register::RegModemConfig1).await?;
+        let mut config_1 = self.read_register(Register::RegModemConfig1)?;
         if pkt_params.implicit_header {
             config_1 = config_1 | 0x01u8;
         } else {
             config_1 = config_1 & 0xfeu8;
         }
-        self.write_register(Register::RegModemConfig1, config_1, false).await?;
+        self.write_register(Register::RegModemConfig1, config_1, false)?;
 
-        let mut config_2 = self.read_register(Register::RegModemConfig2).await?;
+        let mut config_2 = self.read_register(Register::RegModemConfig2)?;
         if pkt_params.crc_on {
             config_2 = config_2 | 0x04u8;
         } else {
             config_2 = config_2 & 0xfbu8;
         }
-        self.write_register(Register::RegModemConfig2, config_2, false).await?;
+        self.write_register(Register::RegModemConfig2, config_2, false)?;
 
         let mut invert_iq = 0x27u8;
         let mut invert_iq2 = 0x1du8;
@@ -333,44 +310,39 @@ where
             invert_iq = 0x66u8;
             invert_iq2 = 0x19u8;
         }
-        self.write_register(Register::RegInvertiq, invert_iq, false).await?;
-        self.write_register(Register::RegInvertiq2, invert_iq2, false).await
+        self.write_register(Register::RegInvertiq, invert_iq, false)?;
+        self.write_register(Register::RegInvertiq2, invert_iq2, false)
     }
 
     // Calibrate the image rejection based on the given frequency
-    async fn calibrate_image(&mut self, _frequency_in_hz: u32) -> Result<(), RadioError> {
+    fn calibrate_image(&mut self, _frequency_in_hz: u32) -> Result<(), RadioError> {
         // An automatic process, but can set bit ImageCalStart in RegImageCal, when the device is in Standby mode.
         Ok(())
     }
 
-    async fn set_channel(&mut self, frequency_in_hz: u32) -> Result<(), RadioError> {
+    fn set_channel(&mut self, frequency_in_hz: u32) -> Result<(), RadioError> {
         let frf = (frequency_in_hz as f64 / FREQUENCY_SYNTHESIZER_STEP) as u32;
-        self.write_register(Register::RegFrfMsb, ((frf & 0x00FF0000) >> 16) as u8, false)
-            .await?;
-        self.write_register(Register::RegFrfMid, ((frf & 0x0000FF00) >> 8) as u8, false)
-            .await?;
+        self.write_register(Register::RegFrfMsb, ((frf & 0x00FF0000) >> 16) as u8, false)?;
+        self.write_register(Register::RegFrfMid, ((frf & 0x0000FF00) >> 8) as u8, false)?;
         self.write_register(Register::RegFrfLsb, (frf & 0x000000FF) as u8, false)
-            .await
     }
 
-    async fn set_payload(&mut self, payload: &[u8]) -> Result<(), RadioError> {
-        self.write_register(Register::RegFifoAddrPtr, 0x00u8, false).await?;
-        self.write_register(Register::RegPayloadLength, 0x00u8, false).await?;
+    fn set_payload(&mut self, payload: &[u8]) -> Result<(), RadioError> {
+        self.write_register(Register::RegFifoAddrPtr, 0x00u8, false)?;
+        self.write_register(Register::RegPayloadLength, 0x00u8, false)?;
         for byte in payload {
-            self.write_register(Register::RegFifo, *byte, false).await?;
+            self.write_register(Register::RegFifo, *byte, false)?;
         }
         self.write_register(Register::RegPayloadLength, payload.len() as u8, false)
-            .await
     }
 
-    async fn do_tx(&mut self, _timeout_in_ms: u32) -> Result<(), RadioError> {
-        self.intf.iv.enable_rf_switch_tx().await?;
+    fn do_tx(&mut self, _timeout_in_ms: u32) -> Result<(), RadioError> {
+        self.intf.iv.enable_rf_switch_tx()?;
 
         self.write_register(Register::RegOpMode, LoRaMode::Tx.value(), false)
-            .await
     }
 
-    async fn do_rx(
+    fn do_rx(
         &mut self,
         _rx_pkt_params: &PacketParams,
         duty_cycle_params: Option<&DutyCycleParams>,
@@ -384,7 +356,7 @@ where
             None => (),
         }
 
-        self.intf.iv.enable_rf_switch_rx().await?;
+        self.intf.iv.enable_rf_switch_rx()?;
 
         let mut symbol_timeout_final = symbol_timeout;
         if rx_continuous {
@@ -393,91 +365,78 @@ where
         if symbol_timeout_final > 0x00ffu16 {
             return Err(RadioError::InvalidSymbolTimeout);
         }
-        self.set_lora_symbol_num_timeout(symbol_timeout_final as u8).await?;
+        self.set_lora_symbol_num_timeout(symbol_timeout_final as u8)?;
 
         let mut lna_gain_final = LnaGain::G1.value();
         if rx_boosted_if_supported {
             lna_gain_final = LnaGain::G1.boosted_value();
         }
-        self.write_register(Register::RegLna, lna_gain_final, false).await?;
+        self.write_register(Register::RegLna, lna_gain_final, false)?;
 
-        self.write_register(Register::RegFifoAddrPtr, 0x00u8, false).await?;
-        self.write_register(Register::RegPayloadLength, 0xffu8, false).await?; // reset payload length (from original implementation)
+        self.write_register(Register::RegFifoAddrPtr, 0x00u8, false)?;
+        self.write_register(Register::RegPayloadLength, 0xffu8, false)?; // reset payload length (from original implementation)
 
         if rx_continuous {
             self.write_register(Register::RegOpMode, LoRaMode::RxContinuous.value(), false)
-                .await
         } else {
             self.write_register(Register::RegOpMode, LoRaMode::RxSingle.value(), false)
-                .await
         }
     }
 
-    async fn get_rx_payload(
-        &mut self,
-        _rx_pkt_params: &PacketParams,
-        receiving_buffer: &mut [u8],
-    ) -> Result<u8, RadioError> {
-        let payload_length = self.read_register(Register::RegRxNbBytes).await?;
+    fn get_rx_payload(&mut self, _rx_pkt_params: &PacketParams, receiving_buffer: &mut [u8]) -> Result<u8, RadioError> {
+        let payload_length = self.read_register(Register::RegRxNbBytes)?;
         if (payload_length as usize) > receiving_buffer.len() {
             return Err(RadioError::PayloadSizeMismatch(
                 payload_length as usize,
                 receiving_buffer.len(),
             ));
         }
-        let fifo_addr = self.read_register(Register::RegFifoRxCurrentAddr).await?;
-        self.write_register(Register::RegFifoAddrPtr, fifo_addr, false).await?;
+        let fifo_addr = self.read_register(Register::RegFifoRxCurrentAddr)?;
+        self.write_register(Register::RegFifoAddrPtr, fifo_addr, false)?;
         for i in 0..payload_length {
-            let byte = self.read_register(Register::RegFifo).await?;
+            let byte = self.read_register(Register::RegFifo)?;
             receiving_buffer[i as usize] = byte;
         }
-        self.write_register(Register::RegFifoAddrPtr, 0x00u8, false).await?;
+        self.write_register(Register::RegFifoAddrPtr, 0x00u8, false)?;
 
         Ok(payload_length)
     }
 
-    async fn get_rx_packet_status(&mut self) -> Result<PacketStatus, RadioError> {
-        let rssi_raw = self.read_register(Register::RegPktRssiValue).await?;
+    fn get_rx_packet_status(&mut self) -> Result<PacketStatus, RadioError> {
+        let rssi_raw = self.read_register(Register::RegPktRssiValue)?;
         let rssi = (rssi_raw as i16) - 157i16; // or -164 for low frequency port ???
-        let snr_raw = self.read_register(Register::RegPktRssiValue).await?;
+        let snr_raw = self.read_register(Register::RegPktRssiValue)?;
         let snr = snr_raw as i16;
         Ok(PacketStatus { rssi, snr })
     }
 
-    async fn do_cad(
-        &mut self,
-        _mdltn_params: &ModulationParams,
-        rx_boosted_if_supported: bool,
-    ) -> Result<(), RadioError> {
-        self.intf.iv.enable_rf_switch_rx().await?;
+    fn do_cad(&mut self, _mdltn_params: &ModulationParams, rx_boosted_if_supported: bool) -> Result<(), RadioError> {
+        self.intf.iv.enable_rf_switch_rx()?;
 
         let mut lna_gain_final = LnaGain::G1.value();
         if rx_boosted_if_supported {
             lna_gain_final = LnaGain::G1.boosted_value();
         }
-        self.write_register(Register::RegLna, lna_gain_final, false).await?;
+        self.write_register(Register::RegLna, lna_gain_final, false)?;
 
         self.write_register(Register::RegOpMode, LoRaMode::Cad.value(), false)
-            .await
     }
 
     // Set the IRQ mask to disable unwanted interrupts, enable interrupts on DIO0 (the IRQ pin), and allow interrupts.
-    async fn set_irq_params(&mut self, radio_mode: Option<RadioMode>) -> Result<(), RadioError> {
+    fn set_irq_params(&mut self, radio_mode: Option<RadioMode>) -> Result<(), RadioError> {
         match radio_mode {
             Some(RadioMode::Transmit) => {
                 self.write_register(
                     Register::RegIrqFlagsMask,
                     IrqMask::All.value() ^ IrqMask::TxDone.value(),
                     false,
-                )
-                .await?;
+                )?;
 
-                let mut dio_mapping_1 = self.read_register(Register::RegDioMapping1).await?;
+                let mut dio_mapping_1 = self.read_register(Register::RegDioMapping1)?;
                 dio_mapping_1 = (dio_mapping_1 & DioMapping1Dio0::Mask.value()) | DioMapping1Dio0::TxDone.value();
-                self.write_register(Register::RegDioMapping1, dio_mapping_1, false)
-                    .await?;
+                self.write_register(Register::RegDioMapping1, dio_mapping_1, false)?;
 
-                self.write_register(Register::RegIrqFlags, 0x00u8, false).await?;
+                self.write_register(Register::RegIrqFlags, 0x00u8, false)?;
             }
             Some(RadioMode::Receive) => {
                 self.write_register(
@@ -485,41 +444,35 @@ where
                     IrqMask::All.value()
                         ^ (IrqMask::RxDone.value() | IrqMask::RxTimeout.value() | IrqMask::CRCError.value()),
                     false,
-                )
-                .await?;
+                )?;
 
-                let mut dio_mapping_1 = self.read_register(Register::RegDioMapping1).await?;
+                let mut dio_mapping_1 = self.read_register(Register::RegDioMapping1)?;
                 dio_mapping_1 = (dio_mapping_1 & DioMapping1Dio0::Mask.value()) | DioMapping1Dio0::RxDone.value();
-                self.write_register(Register::RegDioMapping1, dio_mapping_1, false)
-                    .await?;
+                self.write_register(Register::RegDioMapping1, dio_mapping_1, false)?;
 
-                self.write_register(Register::RegIrqFlags, 0x00u8, false).await?;
+                self.write_register(Register::RegIrqFlags, 0x00u8, false)?;
             }
             Some(RadioMode::ChannelActivityDetection) => {
                 self.write_register(
                     Register::RegIrqFlagsMask,
                     IrqMask::All.value() ^ (IrqMask::CADDone.value() | IrqMask::CADActivityDetected.value()),
                     false,
-                )
-                .await?;
+                )?;
 
-                let mut dio_mapping_1 = self.read_register(Register::RegDioMapping1).await?;
+                let mut dio_mapping_1 = self.read_register(Register::RegDioMapping1)?;
                 dio_mapping_1 = (dio_mapping_1 & DioMapping1Dio0::Mask.value()) | DioMapping1Dio0::CadDone.value();
-                self.write_register(Register::RegDioMapping1, dio_mapping_1, false)
-                    .await?;
+                self.write_register(Register::RegDioMapping1, dio_mapping_1, false)?;
 
-                self.write_register(Register::RegIrqFlags, 0x00u8, false).await?;
+                self.write_register(Register::RegIrqFlags, 0x00u8, false)?;
             }
             _ => {
-                self.write_register(Register::RegIrqFlagsMask, IrqMask::All.value(), false)
-                    .await?;
+                self.write_register(Register::RegIrqFlagsMask, IrqMask::All.value(), false)?;
 
-                let mut dio_mapping_1 = self.read_register(Register::RegDioMapping1).await?;
+                let mut dio_mapping_1 = self.read_register(Register::RegDioMapping1)?;
                 dio_mapping_1 = (dio_mapping_1 & DioMapping1Dio0::Mask.value()) | DioMapping1Dio0::Other.value();
-                self.write_register(Register::RegDioMapping1, dio_mapping_1, false)
-                    .await?;
+                self.write_register(Register::RegDioMapping1, dio_mapping_1, false)?;
 
-                self.write_register(Register::RegIrqFlags, 0xffu8, false).await?;
+                self.write_register(Register::RegIrqFlags, 0xffu8, false)?;
             }
         }
 
@@ -527,7 +480,7 @@ where
     }
 
     /// Process the radio irq
-    async fn process_irq(
+    fn process_irq(
         &mut self,
         radio_mode: RadioMode,
         _rx_continuous: bool,
@@ -536,10 +489,10 @@ where
         loop {
             info!("process_irq loop entered");
 
-            self.intf.iv.await_irq().await?;
+            self.intf.iv.await_irq()?;
 
-            let irq_flags = self.read_register(Register::RegIrqFlags).await?;
-            self.write_register(Register::RegIrqFlags, 0xffu8, false).await?; // clear all interrupts
+            let irq_flags = self.read_register(Register::RegIrqFlags)?;
+            self.write_register(Register::RegIrqFlags, 0xffu8, false)?; // clear all interrupts
 
             info!("process_irq satisfied: irq_flags = 0x{:x}", irq_flags);
 
