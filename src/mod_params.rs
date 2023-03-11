@@ -1,42 +1,76 @@
 use core::fmt::Debug;
 
+use thiserror::Error;
 /// Errors types reported during LoRa physical layer processing
 #[allow(clippy::upper_case_acronyms)]
-#[derive(Debug, defmt::Format, PartialEq)]
+#[derive(Debug, PartialEq, Error)]
 #[allow(dead_code, missing_docs)]
 pub enum RadioError {
+    #[error("SPI error")]
     SPI,
+    #[error("NSS error")]
     NSS,
+    #[error("Reset error")]
     Reset,
+    #[error("RFSwitchRx error")]
     RfSwitchRx,
+    #[error("RFSwitchTx error")]
     RfSwitchTx,
+    #[error("Busy error")]
     Busy,
+    #[error("IRQ error")]
     Irq,
+    #[error("DIO1 error")]
     DIO1,
+    #[error("Delay error")]
     DelayError,
+    #[error("Op error:{0}")]
     OpError(u8),
+    #[error("Invalid base address:{0},{1}")]
     InvalidBaseAddress(usize, usize),
+    #[error("Payload size unexpected:{0}")]
     PayloadSizeUnexpected(usize),
+    #[error("Payload size mismatch: {0} != {1}")]
     PayloadSizeMismatch(usize, usize),
+    #[error("Invalid symbol timeout")]
     InvalidSymbolTimeout,
+    #[error("Retention list exceeded")]
     RetentionListExceeded,
+    #[error("Unavailable spreading factor")]
     UnavailableSpreadingFactor,
+    #[error("Unavailable bandwidth")]
     UnavailableBandwidth,
+    #[error("Unavailable coding rate")]
     UnavailableCodingRate,
+    #[error("Invalid bandwidth for frequency")]
     InvalidBandwidthForFrequency,
+    #[error("Invalid Explicit Header request for SF6")]
     InvalidSF6ExplicitHeaderRequest,
+    #[error("Invalid output power")]
     InvalidOutputPower,
+    #[error("Invalid output power for frequency")]
     InvalidOutputPowerForFrequency,
+    #[error("Header error")]
     HeaderError,
+    #[error("CRC Error unexpected")]
     CRCErrorUnexpected,
+    #[error("CRC Error on receive")]
     CRCErrorOnReceive,
+    #[error("Transmit timeout")]
     TransmitTimeout,
+    #[error("Receive timeout")]
     ReceiveTimeout,
+    #[error("Timeout unexpected")]
     TimeoutUnexpected,
+    #[error("Transmit done unexpected")]
     TransmitDoneUnexpected,
+    #[error("Receive done unexpected")]
     ReceiveDoneUnexpected,
+    #[error("Duty Cycle unsupported")]
     DutyCycleUnsupported,
+    #[error("RX Continuous Duty Cycle unsupported")]
     DutyCycleRxContinuousUnsupported,
+    #[error("CAD unexpected")]
     CADUnexpected,
 }
 

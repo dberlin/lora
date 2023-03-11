@@ -1,8 +1,8 @@
 mod radio_kind_params;
 
-use defmt::info;
 use embedded_hal_1::delay::DelayUs;
 use embedded_hal_1::spi::*;
+use log::debug;
 use radio_kind_params::*;
 
 use crate::mod_params::*;
@@ -485,14 +485,14 @@ where
         cad_activity_detected: Option<&mut bool>,
     ) -> Result<(), RadioError> {
         loop {
-            info!("process_irq loop entered");
+            debug!("process_irq loop entered");
 
             self.intf.iv.await_irq()?;
 
             let irq_flags = self.read_register(Register::RegIrqFlags)?;
             self.write_register(Register::RegIrqFlags, 0xffu8, false)?; // clear all interrupts
 
-            info!("process_irq satisfied: irq_flags = 0x{:x}", irq_flags);
+            debug!("process_irq satisfied: irq_flags = 0x{:x}", irq_flags);
 
             return match IrqFlags::from_bits_truncate(irq_flags) {
                 crc_error if crc_error.contains(IrqFlags::CRC_ERROR) => {

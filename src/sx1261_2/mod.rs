@@ -1,8 +1,8 @@
 mod radio_kind_params;
 
-use defmt::info;
 use embedded_hal_1::delay::DelayUs;
 use embedded_hal_1::spi::*;
+use log::debug;
 use radio_kind_params::*;
 
 use crate::mod_params::RadioError::*;
@@ -285,7 +285,7 @@ where
     }
 
     fn set_oscillator(&mut self) -> Result<(), RadioError> {
-        let voltage = TcxoCtrlVoltage::Ctrl1V7.value() & 0x07; // voltage used to control the TCXO on/off from DIO3
+        let voltage = TcxoCtrlVoltage::Ctrl1V8.value() & 0x07; // voltage used to control the TCXO on/off from DIO3
         let timeout = BRD_TCXO_WAKEUP_TIME << 6; // duration allowed for TCXO to reach 32MHz
         let op_code_and_tcxo_control = [
             OpCode::SetTCXOMode.value(),
@@ -780,7 +780,7 @@ where
         cad_activity_detected: Option<&mut bool>,
     ) -> Result<(), RadioError> {
         loop {
-            info!("process_irq loop entered");
+            debug!("process_irq loop entered");
 
             self.intf.iv.await_irq()?;
             let op_code = [OpCode::GetIrqStatus.value()];
@@ -793,7 +793,7 @@ where
             let op_code_and_irq_status = [OpCode::ClrIrqStatus.value(), irq_status[0], irq_status[1]];
             self.intf.write(&[&op_code_and_irq_status], false)?;
 
-            info!("process_irq satisfied: irq_flags = {:x}", irq_flags);
+            debug!("process_irq satisfied: irq_flags = {:x}", irq_flags);
 
             // check for errors and unexpected interrupt masks (based on radio mode)
             return match IrqFlags::from_bits_truncate(irq_flags) {
@@ -833,15 +833,15 @@ where
                     Err(RadioError::CADUnexpected)
                 }
                 header_valid if header_valid.contains(IrqFlags::HEADER_VALID) => {
-                    info!("HeaderValid");
+                    debug!("HeaderValid");
                     Ok(())
                 }
                 preamble_detected if preamble_detected.contains(IrqFlags::PREAMBLE_DETECTED) => {
-                    info!("PreambleDetected");
+                    debug!("PreambleDetected");
                     Ok(())
                 }
                 syncword_valid if syncword_valid.contains(IrqFlags::SYNCWORD_VALID) => {
-                    info!("SyncwordValid");
+                    debug!("SyncwordValid");
                     Ok(())
                 }
                 tx_done if tx_done.contains(IrqFlags::TX_DONE) => Ok(()),
