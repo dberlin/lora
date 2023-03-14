@@ -14,6 +14,7 @@ pub mod sx1276_7_8_9;
 
 use embedded_hal_1::delay::DelayUs;
 use interface::*;
+use log::trace;
 use mod_params::*;
 use mod_traits::*;
 
@@ -31,12 +32,14 @@ where
 {
     /// Build and return a new instance of the LoRa physical layer API to control an initialized LoRa radio
     pub fn new(radio_kind: RK, enable_public_network: bool, delay: &mut impl DelayUs) -> Result<Self, RadioError> {
+        trace!("LoRa interface creation");
         let mut lora = Self {
             radio_kind,
             radio_mode: RadioMode::Sleep,
             rx_continuous: false,
             image_calibrated: false,
         };
+        trace!("Lora init!");
         lora.init(enable_public_network, delay)?;
 
         Ok(lora)
@@ -125,19 +128,30 @@ where
 
     /// Initialize a Semtech chip as the radio for LoRa physical layer communications
     pub fn init(&mut self, enable_public_network: bool, delay: &mut impl DelayUs) -> Result<(), RadioError> {
+        trace!("Resetting!");
         self.image_calibrated = false;
         self.radio_kind.reset(delay)?;
+        trace!("Ensure ready");
         self.radio_kind.ensure_ready(self.radio_mode)?;
+        trace!("Init RF switch");
         self.radio_kind.init_rf_switch()?;
+        trace!("Set standby");
         self.radio_kind.set_standby()?;
         self.radio_mode = RadioMode::Standby;
         self.rx_continuous = false;
+        trace!("Set lora modem");
         self.radio_kind.set_lora_modem(enable_public_network)?;
+        trace!("Set oscillator");
         self.radio_kind.set_oscillator()?;
+        trace!("set regulator mode");
         self.radio_kind.set_regulator_mode()?;
+        trace!("set rx/tx buffer base");
         self.radio_kind.set_tx_rx_buffer_base_address(0, 0)?;
+        trace!("set tx power and ramp time");
         self.radio_kind.set_tx_power_and_ramp_time(0, None, false, false)?;
+        trace!("set irq params");
         self.radio_kind.set_irq_params(Some(self.radio_mode))?;
+        trace!("update retention list");
         self.radio_kind.update_retention_list()
     }
 
@@ -199,9 +213,7 @@ where
         self.radio_kind.set_irq_params(Some(self.radio_mode))?;
         self.radio_kind.do_tx(timeout_in_ms)?;
         match self.radio_kind.process_irq(self.radio_mode, self.rx_continuous, None) {
-            Ok(()) => {
-                Ok(())
-            }
+            Ok(()) => Ok(()),
             Err(err) => {
                 self.radio_kind.ensure_ready(self.radio_mode)?;
                 self.radio_kind.set_standby()?;
